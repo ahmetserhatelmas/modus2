@@ -9,7 +9,7 @@ export function NewStudentForm({ role }: { role: MemberRole }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const blocked = role === "family";
+  const blocked = role !== "admin";
 
   return (
     <form
@@ -42,12 +42,12 @@ export function NewStudentForm({ role }: { role: MemberRole }) {
         disabled={pending || blocked}
         className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
       >
-        {blocked ? "Aile rolünde kapalı" : pending ? "Kaydediliyor…" : "Oluştur"}
+        {blocked ? "Sadece yönetici oluşturabilir" : pending ? "Kaydediliyor…" : "Oluştur"}
       </button>
       {blocked && (
         <p className="text-sm text-amber-700 sm:w-full sm:basis-full" role="status">
-          Aile rolünde öğrenci oluşturma kapalı. Yukarıdan profil rolünüzü
-          değiştirin.
+          Terapist, doktor ve aile rollerinde öğrenci oluşturma kapalı.
+          Öğrenci eklemek için rolünüzün yönetici olması gerekir.
         </p>
       )}
       {msg && (

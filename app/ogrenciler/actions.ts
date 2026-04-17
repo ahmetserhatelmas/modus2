@@ -27,10 +27,10 @@ export async function createStudent(formData: FormData) {
     .eq("id", user.id)
     .maybeSingle();
 
-  if ((profile?.preferred_role as MemberRole | null) === "family") {
+  if ((profile?.preferred_role as MemberRole | null) !== "admin") {
     return {
       error:
-        "Aile rolünde öğrenci oluşturamazsınız. Önce profil rol tercihinizi doktor/terapist/admin yapın.",
+        "Sadece yönetici rolü öğrenci oluşturabilir.",
     };
   }
 

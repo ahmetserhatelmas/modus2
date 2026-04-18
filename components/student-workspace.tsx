@@ -547,16 +547,19 @@ export function StudentWorkspace({
               : "Yönetici olarak tüm modülleri yönetebilir ve ekip kurabilirsiniz."}
       </div>
 
-      <nav className="flex flex-wrap gap-2 border-b border-neutral-200 pb-2">
+      <nav
+        className="flex flex-col gap-2 border-b border-neutral-200 pb-4"
+        aria-label="Öğrenci bölümleri"
+      >
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`rounded-full px-3 py-1.5 text-sm ${
+            className={`w-full rounded-xl px-4 py-3.5 text-left text-base font-semibold leading-snug transition-colors sm:text-lg ${
               tab === t.id
-                ? "bg-neutral-900 text-white"
-                : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
+                ? "bg-neutral-900 text-white shadow-sm ring-2 ring-neutral-900 ring-offset-2"
+                : "bg-neutral-100 text-neutral-800 hover:bg-neutral-200 active:bg-neutral-300"
             }`}
           >
             {t.label}

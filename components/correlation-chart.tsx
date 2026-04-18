@@ -103,9 +103,10 @@ export function CorrelationChart({
 
   const maxCount = Math.max(0, ...counts);
   const maxY = Math.max(1, maxCount);
+  /** Geniş viewBox + büyük font: dar ekranda ölçeklenince eksen rakamları okunaklı kalsın */
   const w = 640;
-  const h = 220;
-  const pad = { t: 16, r: 24, b: 36, l: 44 };
+  const h = 360;
+  const pad = { t: 22, r: 20, b: 58, l: 52 };
   const innerW = w - pad.l - pad.r;
   const innerH = h - pad.t - pad.b;
 
@@ -160,7 +161,7 @@ export function CorrelationChart({
       ) : null}
       <svg
         viewBox={`0 0 ${w} ${h}`}
-        className="mt-4 w-full max-w-full"
+        className="mt-4 h-auto w-full max-w-full"
         role="img"
         aria-label="İlaç ve eğitsel ilerleme grafiği"
       >
@@ -193,11 +194,12 @@ export function CorrelationChart({
                 />
               ) : null}
               <text
-                x={pad.l - 6}
-                y={y + 4}
+                x={pad.l - 8}
+                y={y + 5}
                 textAnchor="end"
-                fill="#737373"
-                fontSize={10}
+                fill="#404040"
+                fontSize={15}
+                fontWeight={600}
               >
                 {tick}
               </text>
@@ -207,21 +209,26 @@ export function CorrelationChart({
         <polyline
           fill="none"
           stroke="#2563eb"
-          strokeWidth="2"
+          strokeWidth={2.8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
           points={points.join(" ")}
         />
         {weekStarts.map((ws, i) => {
           const x = pad.l + (innerW * (i + 0.5)) / weekStarts.length;
+          /** ~6 haftada bir etiket: mobilde üst üste binmesin, yazı büyük olabilsin */
+          const showX = i % 6 === 0;
           return (
             <text
               key={ws.getTime()}
               x={x}
-              y={h - 8}
+              y={h - 14}
               textAnchor="middle"
-              fill="#a3a3a3"
-              fontSize={9}
+              fill="#525252"
+              fontSize={13}
+              fontWeight={500}
             >
-              {i % 8 === 0 ? shortWeekLabel(ws) : ""}
+              {showX ? shortWeekLabel(ws) : ""}
             </text>
           );
         })}
@@ -238,7 +245,7 @@ export function CorrelationChart({
                 strokeDasharray="4 3"
                 opacity={0.85}
               />
-              <text x={x + 4} y={pad.t + 12} fill="#ea580c" fontSize={9}>
+              <text x={x + 4} y={pad.t + 14} fill="#c2410c" fontSize={12} fontWeight={600}>
                 {e.label.length > 14 ? `${e.label.slice(0, 12)}…` : e.label}
               </text>
             </g>

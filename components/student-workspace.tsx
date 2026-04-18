@@ -2,14 +2,13 @@
 
 import { createClient } from "@/lib/supabase/client";
 import {
-  EDUCATION_BRANCHES,
   EDUCATION_BRANCH_LABELS,
   ROLE_LABELS,
   type EducationBranch,
   type MedicalBranch,
   type MemberRole,
 } from "@/lib/labels";
-import { ChatFiles, type AttachmentRow } from "@/components/chat-files";
+import type { AttachmentRow } from "@/components/chat-files";
 import { CorrelationChart } from "@/components/correlation-chart";
 import {
   ChatPanel,
@@ -19,9 +18,14 @@ import {
 } from "@/components/record-forms";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Tab = "medical" | "education" | "chat" | "family";
+type Tab = "medical" | "education" | "chat" | "team" | "family";
 
-type TeamPeer = { user_id: string; full_name: string; role: MemberRole };
+type TeamPeer = {
+  user_id: string;
+  full_name: string;
+  role: MemberRole;
+  therapist_branch: EducationBranch | null;
+};
 type AddableProfile = {
   user_id: string;
   full_name: string | null;
@@ -126,10 +130,23 @@ export function StudentWorkspace({
   const [editingConvId, setEditingConvId] = useState<string | null>(null);
   const [addableProfiles, setAddableProfiles] = useState<AddableProfile[]>([]);
   const [teamUserId, setTeamUserId] = useState("");
-  const [teamRole, setTeamRole] = useState<MemberRole>("doctor");
-  const [teamBranch, setTeamBranch] = useState<EducationBranch>("ergotherapy");
   const [teamFormMsg, setTeamFormMsg] = useState<string | null>(null);
   const [teamFormBusy, setTeamFormBusy] = useState(false);
+
+  const pickedTeamMember = useMemo(
+    () => addableProfiles.find((p) => p.user_id === teamUserId),
+    [addableProfiles, teamUserId],
+  );
+  const cannotAddTherapistWithoutBranch = Boolean(
+    pickedTeamMember?.preferred_role === "therapist" &&
+      !pickedTeamMember.preferred_therapist_branch,
+  );
+
+  const attachmentById = useMemo(() => {
+    const m: Record<string, AttachmentRow> = {};
+    for (const a of attachments) m[a.id] = a;
+    return m;
+  }, [attachments]);
 
   const reloadMessages = useCallback(async () => {
     if (!activeConv) return;
@@ -186,7 +203,7 @@ export function StudentWorkspace({
       c1.error;
     if (err) {
       setLoadError(
-        "Veri yüklenemedi. Supabase şemasını uyguladığınızdan ve .env değişkenlerinin doğru olduğundan emin olun.",
+        "Bilgiler şu an yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.",
       );
       return;
     }
@@ -221,7 +238,7 @@ export function StudentWorkspace({
   const loadTeamPeers = useCallback(async () => {
     const { data: rows } = await supabase
       .from("student_members")
-      .select("user_id, role")
+      .select("user_id, role, therapist_branch")
       .eq("student_id", studentId);
     if (!rows?.length) {
       setTeamPeers([]);
@@ -237,6 +254,7 @@ export function StudentWorkspace({
       rows.map((r) => ({
         user_id: r.user_id,
         role: r.role as MemberRole,
+        therapist_branch: (r.therapist_branch as EducationBranch | null) ?? null,
         full_name:
           map.get(r.user_id)?.trim() ||
           `${r.user_id.slice(0, 8)}…`,
@@ -332,9 +350,9 @@ export function StudentWorkspace({
   }, [supabase]);
 
   useEffect(() => {
-    if (tab !== "chat") return;
+    if (tab !== "chat" && tab !== "team") return;
     void loadTeamPeers();
-    void loadAddableProfiles();
+    if (tab === "chat") void loadAddableProfiles();
   }, [tab, loadTeamPeers, loadAddableProfiles]);
 
   useEffect(() => {
@@ -391,8 +409,8 @@ export function StudentWorkspace({
     const { error } = await supabase.rpc("admin_add_student_member_by_user_id", {
       p_student_id: studentId,
       p_user_id: teamUserId,
-      p_role: teamRole,
-      p_therapist_branch: teamRole === "therapist" ? teamBranch : null,
+      p_role: null,
+      p_therapist_branch: null,
     });
     setTeamFormBusy(false);
     if (error) {
@@ -423,7 +441,7 @@ export function StudentWorkspace({
   async function deleteConversation(convId: string) {
     if (
       !confirm(
-        "Bu sohbeti silmek istiyor musunuz? Mesajlar ve bu kanala bağlı dosya kayıtları veritabanından silinir.",
+        "Bu sohbet kalıcı olarak silinsin mi? İçindeki mesajlar ve bu kanala eklenmiş dosya kayıtları da kaldırılır.",
       )
     ) {
       return;
@@ -493,8 +511,17 @@ export function StudentWorkspace({
     { id: "medical", label: "Tıbbi konsültasyon" },
     { id: "education", label: "Terapist ve eğitim" },
     { id: "chat", label: "Eğitsel iletişim" },
+    { id: "team", label: "Ekip" },
     { id: "family", label: "Aile paneli" },
   ];
+
+  const teamPeersSorted = useMemo(
+    () =>
+      [...teamPeers].sort((a, b) =>
+        a.full_name.localeCompare(b.full_name, "tr", { sensitivity: "base" }),
+      ),
+    [teamPeers],
+  );
 
   return (
     <div className="space-y-6">
@@ -504,7 +531,8 @@ export function StudentWorkspace({
         </p>
         <h1 className="text-2xl font-semibold text-neutral-900">{displayName}</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          PDF’teki dört kapı: tıbbi oda, eğitim odası, görüşme odası, aile aynası.
+          Tıbbi kayıtlar, eğitim, mesajlaşma, ekip listesi ve aile notları
+          sekmelerinden ulaşılır.
         </p>
       </div>
       <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
@@ -582,13 +610,13 @@ export function StudentWorkspace({
       )}
 
       {tab === "chat" && (
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,300px),minmax(0,1fr),minmax(0,280px)]">
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,300px),minmax(0,1fr)]">
           <div className="min-w-0 space-y-4">
             <div className="flex flex-col gap-2">
               <button
                 type="button"
                 onClick={() => void openGroupChat()}
-                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm hover:bg-neutral-50"
+                className="w-full cursor-pointer rounded-xl border-2 border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-900 shadow-sm transition-[border-color,box-shadow,background-color] hover:border-neutral-300 hover:bg-neutral-50 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2"
               >
                 Yeni vaka grubu
               </button>
@@ -647,8 +675,9 @@ export function StudentWorkspace({
                   Ekip üyesi ekle (yönetici)
                 </p>
                 <p className="mt-1 text-xs text-neutral-600">
-                  Kayıtlı kullanıcılar roleriyle listelenir; birini seçip
-                  direkt ekleyebilirsiniz.
+                  Kayıtlı kullanıcılar rolleriyle listelenir. Vakadaki görev,
+                  kişinin kayıtta seçtiği rol ve (terapistse) branş profiline
+                  göre otomatik atanır; burada değiştirilemez.
                 </p>
                 <form
                   className="mt-2 space-y-2"
@@ -657,21 +686,7 @@ export function StudentWorkspace({
                   <select
                     required
                     value={teamUserId}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      setTeamUserId(nextId);
-                      const picked = addableProfiles.find(
-                        (p) => p.user_id === nextId,
-                      );
-                      if (!picked) return;
-                      setTeamRole(picked.preferred_role);
-                      if (
-                        picked.preferred_therapist_branch &&
-                        picked.preferred_role === "therapist"
-                      ) {
-                        setTeamBranch(picked.preferred_therapist_branch);
-                      }
-                    }}
+                    onChange={(e) => setTeamUserId(e.target.value)}
                     className="w-full rounded-lg border border-amber-200/80 bg-white px-2 py-2 text-sm"
                   >
                     <option value="">Kayıtlı kullanıcı seçin…</option>
@@ -686,36 +701,41 @@ export function StudentWorkspace({
                       </option>
                     ))}
                   </select>
-                  <select
-                    value={teamRole}
-                    onChange={(e) =>
-                      setTeamRole(e.target.value as MemberRole)
-                    }
-                    className="w-full rounded-lg border border-amber-200/80 bg-white px-2 py-2 text-sm"
-                  >
-                    <option value="doctor">Doktor</option>
-                    <option value="therapist">Terapist / eğitimci</option>
-                    <option value="family">Aile</option>
-                    <option value="admin">Yönetici</option>
-                  </select>
-                  {teamRole === "therapist" && (
-                    <select
-                      value={teamBranch}
-                      onChange={(e) =>
-                        setTeamBranch(e.target.value as EducationBranch)
-                      }
-                      className="w-full rounded-lg border border-amber-200/80 bg-white px-2 py-2 text-sm"
-                    >
-                      {EDUCATION_BRANCHES.map((b) => (
-                        <option key={b} value={b}>
-                          {EDUCATION_BRANCH_LABELS[b]}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {pickedTeamMember ? (
+                    <div className="space-y-1 rounded-lg border border-amber-200/60 bg-white/80 px-2 py-2 text-xs text-neutral-700">
+                      <p>
+                        <span className="text-neutral-500">Vaka rolü:</span>{" "}
+                        <span className="font-medium text-neutral-900">
+                          {ROLE_LABELS[pickedTeamMember.preferred_role]}
+                        </span>
+                        {pickedTeamMember.preferred_role === "therapist" &&
+                        pickedTeamMember.preferred_therapist_branch ? (
+                          <span className="text-neutral-600">
+                            {" "}
+                            ·{" "}
+                            {
+                              EDUCATION_BRANCH_LABELS[
+                                pickedTeamMember.preferred_therapist_branch
+                              ]
+                            }
+                          </span>
+                        ) : null}
+                      </p>
+                      {cannotAddTherapistWithoutBranch ? (
+                        <p className="text-amber-900">
+                          Bu kullanıcının profilinde terapist branşı yok;
+                          eklenemez. Kayıtta branş seçilmiş olmalıdır.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <button
                     type="submit"
-                    disabled={teamFormBusy || !teamUserId}
+                    disabled={
+                      teamFormBusy ||
+                      !teamUserId ||
+                      cannotAddTherapistWithoutBranch
+                    }
                     className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50"
                   >
                     {teamFormBusy ? "Ekleniyor…" : "Ekibe ekle"}
@@ -739,14 +759,18 @@ export function StudentWorkspace({
                 Sohbetleriniz
               </p>
               <p className="mb-2 text-xs text-neutral-500">
-                Yalnızca üyesi olduğunuz kanallar listelenir.
+                Yalnızca sizin de dahil olduğunuz konuşmalar görünür. Bir satıra
+                tıklayınca mesajlar sağda açılır.
               </p>
-              <ul className="space-y-2 text-sm">
+              <ul className="space-y-2.5 text-sm">
                 {conversations.map((c) => (
-                  <li key={c.id} className="rounded-lg border border-neutral-100">
+                  <li
+                    key={c.id}
+                    className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-[box-shadow,border-color] hover:border-neutral-300 hover:shadow-md"
+                  >
                     {editingConvId === c.id ? (
                       <form
-                        className="space-y-2 p-2"
+                        className="space-y-2 p-3"
                         onSubmit={(e) => {
                           e.preventDefault();
                           const fd = new FormData(e.currentTarget);
@@ -780,46 +804,58 @@ export function StudentWorkspace({
                         </div>
                       </form>
                     ) : (
-                      <div className="flex items-stretch gap-0.5">
+                      <div className="flex items-stretch">
                         <button
                           type="button"
                           onClick={() => setActiveConv(c.id)}
-                          className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left ${
+                          className={`group flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 ${
                             activeConv === c.id
-                              ? "bg-neutral-100 font-medium"
-                              : "hover:bg-neutral-50"
+                              ? "bg-neutral-100"
+                              : "hover:bg-neutral-50 active:bg-neutral-100"
                           }`}
                         >
-                          <span className="block truncate">
-                            {c.title ?? (c.is_group ? "Grup" : "Bire bir")}
-                          </span>
-                          <span className="text-xs text-neutral-400">
-                            {c.is_group ? "Vaka grubu" : "DM"}
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-neutral-900">
+                              {c.title ?? (c.is_group ? "Grup" : "Bire bir")}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-neutral-500">
+                              {c.is_group ? "Vaka grubu" : "Bire bir sohbet"}
+                            </span>
+                          </div>
+                          <span
+                            className={`shrink-0 text-lg leading-none transition group-hover:translate-x-0.5 ${
+                              activeConv === c.id
+                                ? "text-neutral-800"
+                                : "text-neutral-400 group-hover:text-neutral-700"
+                            }`}
+                            aria-hidden
+                          >
+                            →
                           </span>
                         </button>
-                        <div className="flex shrink-0 flex-col justify-center gap-0.5 border-l border-neutral-100 py-1 pr-1">
+                        <div className="flex shrink-0 flex-col justify-center gap-1.5 border-l border-neutral-200 bg-neutral-50/80 p-2">
                           <button
                             type="button"
-                            title="Adı düzenle"
-                            className="rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50"
+                            title="Sohbet adını değiştir"
+                            className="w-full cursor-pointer rounded-lg border-2 border-neutral-200 bg-white px-2 py-2 text-center text-[11px] font-semibold text-neutral-800 shadow-sm transition hover:border-neutral-300 hover:bg-neutral-50 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-1"
                             onClick={(e) => {
                               e.preventDefault();
                               setActiveConv(c.id);
                               setEditingConvId(c.id);
                             }}
                           >
-                            Ad
+                            Adlandır
                           </button>
                           <button
                             type="button"
-                            title="Sohbeti sil"
-                            className="rounded px-1.5 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
+                            title="Bu sohbeti kalıcı olarak sil"
+                            className="w-full cursor-pointer rounded-lg border-2 border-red-300 bg-red-50 px-2 py-2.5 text-center text-[11px] font-semibold leading-tight text-red-900 shadow-sm transition-[border-color,box-shadow,background-color,transform] hover:border-red-400 hover:bg-red-100 hover:shadow active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-1"
                             onClick={(e) => {
                               e.preventDefault();
                               void deleteConversation(c.id);
                             }}
                           >
-                            Sil
+                            Sohbeti sil
                           </button>
                         </div>
                       </div>
@@ -851,7 +887,7 @@ export function StudentWorkspace({
                   <div className="mt-3 border-t border-blue-100 pt-3">
                     <p className="font-medium text-neutral-900">Gruba üye ekle</p>
                     <p className="mt-1 text-neutral-500">
-                      Önce bu öğrenci için <code className="rounded bg-white px-1">student_members</code> kaydı olan kullanıcılar seçilebilir.
+                      Listede yalnızca bu öğrencinin ekibindeki kişiler yer alır.
                     </p>
                     <select
                       className="mt-2 w-full rounded-lg border border-neutral-200 bg-white px-2 py-2 text-sm"
@@ -888,19 +924,49 @@ export function StudentWorkspace({
               currentUserId={currentUserId}
               onMessagesMutated={() => void reloadMessages()}
               members={teamPeers}
+              studentId={studentId}
+              attachmentById={attachmentById}
+              onPersistChat={() => void load()}
             />
-            <p className="text-xs text-neutral-500">
-              Canlı mesajlar için Supabase Dashboard → Database → Replication
-              altında <code className="rounded bg-neutral-100 px-1">messages</code>{" "}
-              tablosu için Realtime açın.
-            </p>
           </div>
-          <ChatFiles
-            studentId={studentId}
-            conversationId={activeConv}
-            files={attachments}
-            onChanged={() => void load()}
-          />
+        </section>
+      )}
+
+      {tab === "team" && (
+        <section className="mx-auto max-w-lg space-y-4">
+          <p className="text-sm text-neutral-600">
+            Bu vakaya eklenen herkesin listesi. Sohbet başlatmadan önce kimin
+            ekipte olduğunu buradan hızlıca görebilirsiniz.
+          </p>
+          {teamPeersSorted.length === 0 ? (
+            <p className="text-sm text-neutral-500">Henüz ekip üyesi yok.</p>
+          ) : (
+            <ul className="divide-y divide-neutral-200 rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              {teamPeersSorted.map((t) => (
+                <li
+                  key={t.user_id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5"
+                >
+                  <span className="font-medium text-neutral-900">
+                    {t.full_name}
+                  </span>
+                  <span className="shrink-0 text-xs text-neutral-500">
+                    {ROLE_LABELS[t.role]}
+                    {t.role === "therapist" && t.therapist_branch
+                      ? ` · ${EDUCATION_BRANCH_LABELS[t.therapist_branch]}`
+                      : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {role === "admin" ? (
+            <p className="text-xs text-neutral-500">
+              Yeni üye eklemek için{" "}
+              <strong>Eğitsel iletişim</strong> sekmesindeki yönetici alanını
+              kullanın.
+            </p>
+          ) : null}
         </section>
       )}
 

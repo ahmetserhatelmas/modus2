@@ -1,6 +1,5 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
 import {
   EDUCATION_BRANCHES,
   EDUCATION_BRANCH_LABELS,
@@ -8,80 +7,27 @@ import {
   type EducationBranch,
   type MemberRole,
 } from "@/lib/labels";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useActionState, useState } from "react";
+import { authGirisAction, type AuthFormState } from "./actions";
 
 export function LoginForm() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [fullName, setFullName] = useState("");
   const [preferredRole, setPreferredRole] = useState<MemberRole>("family");
   const [preferredBranch, setPreferredBranch] =
     useState<EducationBranch>("ergotherapy");
-  const [message, setMessage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage(null);
-    setLoading(true);
-    const supabase = createClient();
-
-    if (mode === "signup") {
-      const origin =
-        typeof window !== "undefined" ? window.location.origin : "";
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-            preferred_role: preferredRole,
-            preferred_therapist_branch:
-              preferredRole === "therapist" ? preferredBranch : null,
-          },
-          emailRedirectTo: origin
-            ? `${origin}/auth/callback`
-            : undefined,
-        },
-      });
-      setLoading(false);
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
-      // Confirm email kapalıysa Supabase oturum döner; açıksa session null kalır.
-      if (data.session) {
-        router.push("/ogrenciler");
-        router.refresh();
-        return;
-      }
-      setMessage(
-        "Kayıt oluşturuldu; e-posta onayı bekleniyor. Anında giriş için Supabase’de e-posta onayını kapatın (aşağıdaki adımlar).",
-      );
-      return;
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    setLoading(false);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    router.push("/ogrenciler");
-    router.refresh();
-  }
+  const [state, formAction, isPending] = useActionState<
+    AuthFormState,
+    FormData
+  >(authGirisAction, null);
 
   return (
     <form
-      onSubmit={submit}
+      key={mode}
+      action={formAction}
       className="space-y-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm"
     >
+      <input type="hidden" name="intent" value={mode} />
+
       <div className="flex rounded-lg border border-neutral-200 p-0.5 text-sm">
         <button
           type="button"
@@ -106,23 +52,27 @@ export function LoginForm() {
           Kayıt
         </button>
       </div>
+
       {mode === "signup" && (
         <>
           <label className="block text-sm">
             <span className="text-neutral-700">Ad soyad</span>
             <input
+              name="full_name"
+              required
               className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
               autoComplete="name"
             />
           </label>
           <label className="block text-sm">
             <span className="text-neutral-700">Rol tercihi</span>
             <select
-              className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
+              name="preferred_role"
               value={preferredRole}
-              onChange={(e) => setPreferredRole(e.target.value as MemberRole)}
+              onChange={(e) =>
+                setPreferredRole(e.target.value as MemberRole)
+              }
+              className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
             >
               {(Object.keys(ROLE_LABELS) as MemberRole[]).map((r) => (
                 <option key={r} value={r}>
@@ -135,11 +85,12 @@ export function LoginForm() {
             <label className="block text-sm">
               <span className="text-neutral-700">Terapist branşı</span>
               <select
-                className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
+                name="preferred_therapist_branch"
                 value={preferredBranch}
                 onChange={(e) =>
                   setPreferredBranch(e.target.value as EducationBranch)
                 }
+                className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
               >
                 {EDUCATION_BRANCHES.map((b) => (
                   <option key={b} value={b}>
@@ -151,40 +102,35 @@ export function LoginForm() {
           )}
         </>
       )}
+
       <label className="block text-sm">
         <span className="text-neutral-700">E-posta</span>
         <input
           type="email"
+          name="email"
           required
           className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
           autoComplete="email"
         />
       </label>
-      <label className="block text-sm">
-        <span className="text-neutral-700">Şifre</span>
-        <input
-          type="password"
-          required
-          minLength={6}
-          className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-blue-500 focus:ring-2"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete={mode === "signup" ? "new-password" : "current-password"}
-        />
-      </label>
-      {message && (
-        <p className="text-sm text-neutral-600" role="status">
-          {message}
+
+      {state?.error && (
+        <p className="text-sm text-red-700" role="alert">
+          {state.error}
         </p>
       )}
+      {state?.message && (
+        <p className="text-sm text-neutral-600" role="status">
+          {state.message}
+        </p>
+      )}
+
       <button
         type="submit"
-        disabled={loading}
+        disabled={isPending}
         className="w-full rounded-lg bg-neutral-900 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
       >
-        {loading ? "Bekleyin…" : mode === "login" ? "Giriş yap" : "Kayıt ol"}
+        {isPending ? "Bekleyin…" : mode === "login" ? "Giriş yap" : "Kayıt ol"}
       </button>
     </form>
   );

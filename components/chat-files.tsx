@@ -123,13 +123,13 @@ export function ChatFiles({
     <div className="rounded-xl border border-neutral-200 bg-white p-4">
       <h3 className="text-sm font-semibold text-neutral-900">Dosya paylaşımı</h3>
       <p className="mt-1 text-xs text-neutral-500">
-        Seans videosu veya PDF gibi dosyaları seçili sohbete yükleyin (bucket:{" "}
-        <code className="rounded bg-neutral-100 px-1">erd-attachments</code>).
+        Dosyaları doğrudan mesaj kutusundaki 📎 ile de ekleyebilirsiniz; burada
+        tüm ekler listelenir.
       </p>
 
       {!conversationId ? (
         <p className="mt-3 text-sm text-neutral-600">
-          Yükleme için önce soldan bir sohbet seçin.
+          Dosya eklemek için önce bir konuşma seçin.
         </p>
       ) : (
         <label className="mt-3 block">

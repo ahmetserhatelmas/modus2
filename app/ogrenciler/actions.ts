@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { EducationBranch, MemberRole } from "@/lib/labels";
+import type { MemberRole } from "@/lib/labels";
 
 export async function signOut() {
   const supabase = await createClient();
@@ -47,27 +47,32 @@ export async function createStudent(formData: FormData) {
   return { ok: true as const };
 }
 
-export async function updateProfileRolePreferences(formData: FormData) {
-  const role = formData.get("preferred_role") as MemberRole | null;
-  const branch = formData.get("preferred_therapist_branch") as
-    | EducationBranch
-    | null;
-  if (!role) return { error: "Rol seçimi gerekli." };
-
+export async function leaveStudentCase(studentId: string) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/giris");
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      preferred_role: role,
-      preferred_therapist_branch: role === "therapist" ? branch : null,
-    })
-    .eq("id", user.id);
+  const { error } = await supabase.rpc("leave_student_case", {
+    p_student_id: studentId,
+  });
+  if (error) return { error: error.message };
 
+  revalidatePath("/ogrenciler");
+  return { ok: true as const };
+}
+
+export async function deleteStudentCase(studentId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/giris");
+
+  const { error } = await supabase.rpc("delete_student_case", {
+    p_student_id: studentId,
+  });
   if (error) return { error: error.message };
 
   revalidatePath("/ogrenciler");

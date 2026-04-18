@@ -1,6 +1,11 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import type { AttachmentRow } from "@/components/chat-files";
+import {
+  parseAttachmentIdFromMessageBody,
+  uploadChatFileAsMessage,
+} from "@/lib/chat-file-message";
 import {
   EDUCATION_BRANCH_LABELS,
   MEDICAL_BRANCH_LABELS,
@@ -8,7 +13,7 @@ import {
   type MedicalBranch,
   type MemberRole,
 } from "@/lib/labels";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 const inp =
   "w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500";
@@ -19,21 +24,25 @@ function ItemActions({
   show,
   onEdit,
   onDelete,
+  allowEdit = true,
 }: {
   show: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  allowEdit?: boolean;
 }) {
   if (!show) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-3 border-t border-neutral-100 pt-2">
-      <button
-        type="button"
-        onClick={onEdit}
-        className="text-xs font-medium text-blue-600 hover:underline"
-      >
-        Düzenle
-      </button>
+      {allowEdit ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-xs font-medium text-blue-600 hover:underline"
+        >
+          Düzenle
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onDelete}
@@ -1182,6 +1191,9 @@ export function ChatPanel({
   currentUserId,
   onMessagesMutated,
   members,
+  studentId,
+  attachmentById,
+  onPersistChat,
 }: {
   activeConv: string | null;
   messages: { id: string; body: string; created_at: string; user_id: string }[];
@@ -1189,15 +1201,30 @@ export function ChatPanel({
   currentUserId: string | null;
   onMessagesMutated: () => void;
   members: { user_id: string; full_name: string; role: MemberRole }[];
+  studentId: string;
+  attachmentById: Record<string, AttachmentRow>;
+  onPersistChat: () => void | Promise<void>;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [draft, setDraft] = useState("");
   const [edMsg, setEdMsg] = useState<string | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileErr, setFileErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function openAttachmentSigned(path: string) {
+    const { data, error } = await supabase.storage
+      .from("erd-attachments")
+      .createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) return;
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
 
   if (!activeConv) {
     return (
       <p className="text-sm text-neutral-600">
-        Soldan bir sohbet seçin veya vaka grubu oluşturun.
+        Mesaj yazmak için listeden bir konuşma seçin veya yeni bir vaka grubu
+        oluşturun.
       </p>
     );
   }
@@ -1228,54 +1255,109 @@ export function ChatPanel({
               {new Date(m.created_at).toLocaleString("tr-TR")}
             </p>
             {edMsg === m.id ? (
-              <form
-                className="mt-1 space-y-2"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const fd = new FormData(e.currentTarget);
-                  await supabase
-                    .from("messages")
-                    .update({ body: String(fd.get("body")) })
-                    .eq("id", m.id);
-                  setEdMsg(null);
-                  onMessagesMutated();
-                }}
-              >
-                <textarea
-                  name="body"
-                  required
-                  rows={2}
-                  defaultValue={m.body}
-                  className={inp}
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-neutral-900 px-2 py-1 text-xs text-white"
-                  >
-                    Kaydet
-                  </button>
+              parseAttachmentIdFromMessageBody(m.body) ? (
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-neutral-600">
+                    Dosya mesajları düzenlenemez.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setEdMsg(null)}
                     className="rounded-lg border border-neutral-200 px-2 py-1 text-xs"
+                    onClick={() => setEdMsg(null)}
                   >
-                    İptal
+                    Kapat
                   </button>
                 </div>
-              </form>
+              ) : (
+                <form
+                  className="mt-1 space-y-2"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const fd = new FormData(e.currentTarget);
+                    await supabase
+                      .from("messages")
+                      .update({ body: String(fd.get("body")) })
+                      .eq("id", m.id);
+                    setEdMsg(null);
+                    onMessagesMutated();
+                  }}
+                >
+                  <textarea
+                    name="body"
+                    required
+                    rows={2}
+                    defaultValue={m.body}
+                    className={inp}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-neutral-900 px-2 py-1 text-xs text-white"
+                    >
+                      Kaydet
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-neutral-200 px-2 py-1 text-xs"
+                      onClick={() => setEdMsg(null)}
+                    >
+                      İptal
+                    </button>
+                  </div>
+                </form>
+              )
             ) : (
               <>
-                <p className="text-neutral-800">{m.body}</p>
+                {(() => {
+                  const attId = parseAttachmentIdFromMessageBody(m.body);
+                  if (!attId) {
+                    return <p className="text-neutral-800">{m.body}</p>;
+                  }
+                  const att = attachmentById[attId];
+                  return att ? (
+                    <div className="mt-1 rounded-lg border border-neutral-200 bg-white px-3 py-2">
+                      <p className="text-sm font-medium text-neutral-900">
+                        📎 {att.file_name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-neutral-500">
+                        {att.byte_size != null
+                          ? `${(att.byte_size / 1024).toFixed(0)} KB`
+                          : ""}
+                        {att.content_type ? ` · ${att.content_type}` : ""}
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-2 rounded-lg border border-neutral-300 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+                        onClick={() => void openAttachmentSigned(att.object_path)}
+                      >
+                        Aç / indir
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-neutral-500">📎 Dosya yükleniyor…</p>
+                  );
+                })()}
                 {currentUserId === m.user_id && (
                   <ItemActions
                     show
+                    allowEdit={!parseAttachmentIdFromMessageBody(m.body)}
                     onEdit={() => setEdMsg(m.id)}
                     onDelete={() => {
                       if (!confirm("Bu mesajı silmek istiyor musunuz?")) return;
                       void (async () => {
+                        const aid = parseAttachmentIdFromMessageBody(m.body);
+                        if (aid) {
+                          const row = attachmentById[aid];
+                          if (row) {
+                            await supabase.storage
+                              .from("erd-attachments")
+                              .remove([row.object_path]);
+                            await supabase.from("attachments").delete().eq("id", aid);
+                          }
+                        }
                         await supabase.from("messages").delete().eq("id", m.id);
                         onMessagesMutated();
+                        await onPersistChat();
                       })();
                     }}
                   />
@@ -1288,27 +1370,76 @@ export function ChatPanel({
           <p className="text-neutral-500">Henüz mesaj yok.</p>
         )}
       </div>
-      <form
-        className="flex gap-2 border-t border-neutral-200 p-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (draft.trim()) onSend(draft);
-          setDraft("");
-        }}
-      >
-        <input
-          className="flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Mesaj yazın…"
-        />
-        <button
-          type="submit"
-          className="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white"
+      <div className="border-t border-neutral-200 p-3">
+        {fileErr ? (
+          <p className="mb-2 text-xs text-red-600" role="alert">
+            {fileErr}
+          </p>
+        ) : null}
+        <form
+          className="flex flex-wrap items-stretch gap-2 sm:flex-nowrap"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (draft.trim()) onSend(draft);
+            setDraft("");
+          }}
         >
-          Gönder
-        </button>
-      </form>
+          <input
+            ref={fileRef}
+            type="file"
+            className="sr-only"
+            tabIndex={-1}
+            disabled={fileBusy}
+            onChange={(ev) => {
+              void (async () => {
+                const file = ev.target.files?.[0];
+                ev.target.value = "";
+                if (!file || !activeConv) return;
+                setFileErr(null);
+                setFileBusy(true);
+                const r = await uploadChatFileAsMessage(supabase, {
+                  studentId,
+                  conversationId: activeConv,
+                  file,
+                });
+                setFileBusy(false);
+                if (!r.ok) {
+                  setFileErr(r.error);
+                  return;
+                }
+                onMessagesMutated();
+                await onPersistChat();
+              })();
+            }}
+          />
+          <button
+            type="button"
+            disabled={fileBusy}
+            title="Bu konuşmaya dosya ekle"
+            onClick={() => fileRef.current?.click()}
+            className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 border-neutral-200 bg-white px-3 py-2 text-base text-neutral-700 shadow-sm transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            📎
+          </button>
+          <input
+            className="min-w-0 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Mesaj yazın…"
+          />
+          <button
+            type="submit"
+            disabled={fileBusy}
+            className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Gönder
+          </button>
+        </form>
+        <p className="mt-2 text-[11px] text-neutral-500">
+          Dosya eklemek için ataç simgesine tıklayın; dosya bu sohbette bir mesaj
+          olarak görünür.
+        </p>
+      </div>
     </div>
   );
 }
